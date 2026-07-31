@@ -1,65 +1,446 @@
-import Image from "next/image";
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import Markdown from "@/components/Markdown";
+import SearchBox from "@/components/SearchBox";
+
+interface Source {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+interface UiMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  searchUsed?: boolean;
+  sources?: Source[];
+  createdAt?: string;
+}
+
+interface ConversationSummary {
+  id: string;
+  title: string;
+  updatedAt: string;
+  lastMessagePreview: string | null;
+}
+
+function MessageBubble({ message }: { message: UiMessage }) {
+  const [showSources, setShowSources] = useState(false);
+  const isUser = message.role === "user";
+
+  return (
+    <div
+      className={
+        "flex gap-3 py-3 " + (isUser ? "flex-row-reverse" : "")
+      }
+    >
+      <div
+        className={
+          "min-w-0 max-w-[85%] rounded-xl px-4 py-2 " +
+          (isUser
+            ? "bg-[#1f3a5f] text-white"
+            : "bg-[#11161d] border border-[#1f2937]")
+        }
+      >
+        {!isUser && (
+          <div className="flex flex-wrap items-center gap-2 mb-1 text-xs text-[#6e7681]">
+            <span>Assistant</span>
+            {message.searchUsed && (
+              <span className="inline-flex items-center gap-1 text-[#4f8cff]">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="2" y1="12" x2="22" y2="12" />
+                  <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                </svg>
+                searched web
+              </span>
+            )}
+          </div>
+        )}
+
+        <Markdown content={message.content} />
+
+        {!isUser && message.sources && message.sources.length > 0 && (
+          <div className="mt-2 text-xs">
+            <button
+              onClick={() => setShowSources((v) => !v)}
+              className="text-[#8b949e] hover:text-[#4f8cff]"
+            >
+              {showSources ? "hide sources" : "show sources"} (
+              {message.sources.length})
+            </button>
+            {showSources && (
+              <ol className="mt-2 space-y-1 list-decimal list-inside">
+                {message.sources.map((s, i) => (
+                  <li key={i}>
+                    <a
+                      href={s.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#4f8cff] hover:underline"
+                    >
+                      {s.title || s.url}
+                    </a>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function Home() {
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [currentId, setCurrentId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<UiMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [streaming, setStreaming] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
+
+  useEffect(() => scrollToBottom(), [messages, scrollToBottom]);
+
+  const loadConversations = useCallback(async () => {
+    try {
+      const res = await fetch("/api/conversations");
+      if (res.ok) {
+        const data = (await res.json()) as {
+          conversations: ConversationSummary[];
+        };
+        setConversations(data.conversations);
+      }
+    } catch {
+      // ignore list failures
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadConversations();
+  }, [loadConversations]);
+
+  const loadMessages = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/conversations/${id}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        messages: Array<{
+          id: string;
+          role: string;
+          content: string;
+          createdAt: string;
+          searchUsed: boolean;
+          sources: Source[];
+        }>;
+      };
+      setMessages(
+        data.messages
+          .filter((m) => m.role === "user" || m.role === "assistant")
+          .map((m) => ({
+            id: m.id,
+            role: m.role as "user" | "assistant",
+            content: m.content,
+            searchUsed: m.searchUsed,
+            sources: m.sources ?? [],
+            createdAt: m.createdAt,
+          })),
+      );
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const newChat = useCallback(async () => {
+    try {
+      const res = await fetch("/api/conversations", { method: "POST" });
+      if (!res.ok) return;
+      const data = (await res.json()) as { conversation: { id: string } };
+      setCurrentId(data.conversation.id);
+      setMessages([]);
+      await loadConversations();
+    } catch {
+      // ignore
+    }
+  }, [loadConversations]);
+
+  const send = useCallback(async () => {
+    const text = input.trim();
+    if (!text || streaming || !currentId) return;
+    setInput("");
+    setError(null);
+
+    const userMsg: UiMessage = {
+      id: "user-" + Date.now(),
+      role: "user",
+      content: text,
+      createdAt: new Date().toISOString(),
+    };
+    const helperId = "assistant-stream";
+    const helper: UiMessage = {
+      id: helperId,
+      role: "assistant",
+      content: "",
+    };
+    setMessages((prev) => [...prev, userMsg, helper]);
+    setStreaming(true);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId: currentId, message: text }),
+        signal: controller.signal,
+      });
+      if (!res.ok || !res.body) {
+        const data = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(data?.error ?? "Chat request failed");
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split("\n\n");
+        buffer = events.pop() ?? "";
+        for (const evt of events) {
+          const line = evt.split("\n").find((l) => l.startsWith("data: "));
+          if (!line) continue;
+          try {
+            const data = JSON.parse(line.slice(6)) as {
+              delta?: string;
+              done?: boolean;
+              error?: string;
+            };
+            if (data.error) throw new Error(data.error);
+            if (data.delta) {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === helperId
+                    ? { ...m, content: m.content + data.delta }
+                    : m,
+                ),
+              );
+            }
+            if (data.done) break;
+          } catch {
+            // skip malformed events
+          }
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Request failed");
+    } finally {
+      setStreaming(false);
+      abortRef.current = null;
+      setMessages((prev) =>
+        prev.filter((m) => m.id !== helperId || m.content !== ""),
+      );
+      await loadConversations();
+      if (currentId) await loadMessages(currentId);
+    }
+  }, [input, streaming, currentId, loadConversations, loadMessages]);
+
+  const stop = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
+
+  const selectConversation = useCallback(
+    (id: string) => {
+      setCurrentId(id);
+      void loadMessages(id);
+    },
+    [loadMessages],
+  );
+
+  const deleteConversation = useCallback(
+    async (id: string) => {
+      try {
+        await fetch(`/api/conversations/${id}`, { method: "DELETE" });
+        if (id === currentId) {
+          setCurrentId(null);
+          setMessages([]);
+        }
+        await loadConversations();
+      } catch {
+        // ignore
+      }
+    },
+    [currentId, loadConversations],
+  );
+
+  const autoGrow = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 200) + "px";
+  }, []);
+
+  const onKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        void send();
+      }
+    },
+    [send],
+  );
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <div className="flex h-screen overflow-hidden">
+      {sidebarOpen && (
+        <aside className="w-64 shrink-0 flex flex-col border-r border-[#1f2937] bg-[#11161d]">
+          <div className="p-3">
+            <button
+              onClick={() => void newChat()}
+              className="w-full px-3 py-2 rounded-lg bg-[#4f8cff] text-white text-sm font-medium hover:opacity-90"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+              + New chat
+            </button>
+          </div>
+          <div className="px-3 pb-2 space-y-1">
+            <SearchBox />
+            <Link
+              href="/memories"
+              className="block px-3 py-2 rounded-lg text-sm text-[#8b949e] hover:bg-[#161b22] hover:text-white"
             >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+              Memories
+            </Link>
+          </div>
+          <nav className="flex-1 overflow-y-auto px-2 pb-2">
+            {conversations.map((c) => (
+              <div
+                key={c.id}
+                className={
+                  "group flex items-center gap-1 px-3 py-2 rounded-lg text-sm cursor-pointer " +
+                  (c.id === currentId
+                    ? "bg-[#161b22] text-white"
+                    : "text-[#8b949e] hover:bg-[#161b22] hover:text-white")
+                }
+                onClick={() => selectConversation(c.id)}
+              >
+                <span className="flex-1 truncate">{c.title}</span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void deleteConversation(c.id);
+                  }}
+                  className="opacity-0 group-hover:opacity-100 text-xs text-[#6e7681] hover:text-red-400"
+                  aria-label="Delete conversation"
+                >
+                  x
+                </button>
+              </div>
+            ))}
+            {conversations.length === 0 && (
+              <p className="px-3 py-2 text-xs text-[#6e7681]">
+                No conversations yet
+              </p>
+            )}
+          </nav>
+        </aside>
+      )}
+
+      {/* Main area */}
+      <div className="flex-1 flex flex-col min-w-0">
+        <header className="flex items-center gap-2 px-4 h-12 border-b border-[#1f2937] shrink-0">
+          <button
+            onClick={() => setSidebarOpen((v) => !v)}
+            className="px-2 py-1 text-sm text-[#8b949e] hover:text-white rounded"
+            aria-label="Toggle sidebar"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+            {sidebarOpen ? "Hide" : "Menu"}
+          </button>
+          <h1 className="text-sm font-medium">Personal AI Assistant</h1>
+        </header>
+
+        <div ref={scrollRef} className="flex-1 overflow-y-auto">
+          <div className="max-w-3xl mx-auto px-4 py-4">
+            {messages.length === 0 && (
+              <div className="py-16 text-center text-[#6e7681]">
+                <p className="text-lg mb-2">Ask me anything</p>
+                <p className="text-sm">
+                  I remember our past conversations and can search the web for
+                  current facts.
+                </p>
+              </div>
+            )}
+
+            {messages.map((m) => (
+              <MessageBubble key={m.id} message={m} />
+            ))}
+
+            {streaming && (
+              <div className="flex items-center gap-2 py-2 text-xs text-[#6e7681]">
+                <span className="inline-block w-2 h-2 rounded-full bg-[#4f8cff] animate-pulse" />
+                Streaming
+              </div>
+            )}
+
+            {error && <div className="py-2 text-sm text-red-400">{error}</div>}
+          </div>
+        </div>
+
+        {/* Composer */}
+        <div className="shrink-0 border-t border-[#1f2937] p-3">
+          <div className="max-w-3xl mx-auto flex items-end gap-2">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => {
+                setInput(e.target.value);
+                autoGrow();
+              }}
+              onKeyDown={onKeyDown}
+              placeholder="Message (Enter to send, Shift+Enter for newline)"
+              rows={1}
+              disabled={!currentId}
+              className="flex-1 resize-none px-3 py-2 rounded-lg bg-[#11161d] border border-[#30363d] text-sm focus:outline-none focus:border-[#4f8cff] max-h-[200px]"
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            {streaming ? (
+              <button
+                onClick={stop}
+                className="px-4 py-2 rounded-lg bg-red-500/20 text-red-400 text-sm font-medium hover:bg-red-500/30"
+              >
+                Stop
+              </button>
+            ) : (
+              <button
+                onClick={() => void send()}
+                disabled={!currentId || !input.trim()}
+                className="px-4 py-2 rounded-lg bg-[#4f8cff] text-white text-sm font-medium disabled:opacity-40"
+              >
+                Send
+              </button>
+            )}
+          </div>
+          {!currentId && (
+            <p className="max-w-3xl mx-auto mt-2 text-xs text-[#6e7681]">
+              Use &quot;+ New chat&quot; to start a conversation.
+            </p>
+          )}
         </div>
-      </main>
+      </div>
     </div>
   );
 }

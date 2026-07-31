@@ -6,20 +6,32 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:check": "drizzle-kit check"
   },
   "dependencies": {
-    "next": "16.2.12",
+    "@neondatabase/serverless": "^1.1.0",
+    "drizzle-orm": "^0.45.2",
+    "next": "^15.5.22",
+    "openai": "^7.3.0",
+    "postgres": "^3.4.9",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pg": "^8.20.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^9",
-    "eslint-config-next": "16.2.12",
+    "eslint-config-next": "^15.5.22",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
