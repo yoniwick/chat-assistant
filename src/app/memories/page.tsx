@@ -62,8 +62,8 @@ export default function MemoriesPage() {
   );
 
   return (
-    <main className="min-h-screen max-w-4xl mx-auto px-4 py-8">
-      <div className="flex items-center justify-between mb-6">
+    <main className="min-h-dvh max-w-4xl mx-auto px-3 sm:px-4 py-6 sm:py-8">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <div>
           <h1 className="text-xl font-semibold">Memories</h1>
           <p className="text-sm text-[#8b949e] mt-1">
@@ -72,7 +72,7 @@ export default function MemoriesPage() {
         </div>
         <Link
           href="/"
-          className="px-3 py-2 rounded-lg text-sm text-[#8b949e] border border-[#30363d] hover:text-white hover:border-[#4f8cff]"
+          className="inline-flex items-center justify-center px-3 py-2.5 rounded-lg text-sm text-[#8b949e] border border-[#30363d] hover:text-white hover:border-[#4f8cff] min-h-[44px] self-start"
         >
           Back to chat
         </Link>
@@ -95,49 +95,51 @@ export default function MemoriesPage() {
           <h2 className="text-sm font-medium text-[#8b949e] uppercase tracking-wide mb-3">
             {KIND_LABELS[g.kind] ?? g.kind} ({g.rows.length})
           </h2>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-[#6e7681] border-b border-[#1f2937]">
-                <th className="py-2 pr-4">Content</th>
-                <th className="py-2 pr-4 w-20">Importance</th>
-                <th className="py-2 pr-4 w-28">Created</th>
-                <th className="py-2 w-16" />
-              </tr>
-            </thead>
-            <tbody>
-              {g.rows.map((m) => (
-                <tr key={m.id} className="border-b border-[#161b22]">
-                  <td className="py-2 pr-4">{m.content}</td>
-                  <td className="py-2 pr-4">
-                    <span
-                      className={
-                        "inline-flex items-center justify-center w-7 h-6 rounded text-xs font-medium " +
-                        (m.importance >= 4
-                          ? "bg-red-500/20 text-red-400"
-                          : m.importance === 3
-                            ? "bg-yellow-500/20 text-yellow-400"
-                            : "bg-[#21262d] text-[#8b949e]")
-                      }
-                    >
-                      {m.importance}
-                    </span>
-                  </td>
-                  <td className="py-2 pr-4 text-xs text-[#6e7681]">
-                    {new Date(m.createdAt).toLocaleDateString()}
-                  </td>
-                  <td className="py-2">
-                    <button
-                      onClick={() => void remove(m.id)}
-                      className="text-xs text-[#6e7681] hover:text-red-400 px-2 py-1 rounded hover:bg-red-500/10"
-                      aria-label={"Delete memory: " + m.content}
-                    >
-                      Delete
-                    </button>
-                  </td>
+          <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0">
+            <table className="w-full text-sm min-w-[480px]">
+              <thead>
+                <tr className="text-left text-[#6e7681] border-b border-[#1f2937]">
+                  <th className="py-2 pr-4">Content</th>
+                  <th className="py-2 pr-4 w-20">Importance</th>
+                  <th className="py-2 pr-4 w-28">Created</th>
+                  <th className="py-2 w-16" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {g.rows.map((m) => (
+                  <tr key={m.id} className="border-b border-[#161b22]">
+                    <td className="py-2.5 pr-4">{m.content}</td>
+                    <td className="py-2.5 pr-4">
+                      <span
+                        className={
+                          "inline-flex items-center justify-center w-7 h-6 rounded text-xs font-medium " +
+                          (m.importance >= 4
+                            ? "bg-red-500/20 text-red-400"
+                            : m.importance === 3
+                              ? "bg-yellow-500/20 text-yellow-400"
+                              : "bg-[#21262d] text-[#8b949e]")
+                        }
+                      >
+                        {m.importance}
+                      </span>
+                    </td>
+                    <td className="py-2.5 pr-4 text-xs text-[#6e7681] whitespace-nowrap">
+                      {new Date(m.createdAt).toLocaleDateString()}
+                    </td>
+                    <td className="py-2.5">
+                      <button
+                        onClick={() => void remove(m.id)}
+                        className="text-xs text-[#6e7681] hover:text-red-400 px-2 py-2 rounded hover:bg-red-500/10 min-h-[36px]"
+                        aria-label={"Delete memory: " + m.content}
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       ))}
 

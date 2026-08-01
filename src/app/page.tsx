@@ -34,12 +34,12 @@ function MessageBubble({ message }: { message: UiMessage }) {
   return (
     <div
       className={
-        "flex gap-3 py-3 " + (isUser ? "flex-row-reverse" : "")
+        "flex gap-2 sm:gap-3 py-3 " + (isUser ? "flex-row-reverse" : "")
       }
     >
       <div
         className={
-          "min-w-0 max-w-[85%] rounded-xl px-4 py-2 " +
+          "min-w-0 max-w-[92%] sm:max-w-[85%] rounded-xl px-3 py-2 sm:px-4 " +
           (isUser
             ? "bg-[#1f3a5f] text-white"
             : "bg-[#11161d] border border-[#1f2937]")
@@ -61,13 +61,15 @@ function MessageBubble({ message }: { message: UiMessage }) {
           </div>
         )}
 
-        <Markdown content={message.content} />
+        <div className="text-sm sm:text-base break-words">
+          <Markdown content={message.content} />
+        </div>
 
         {!isUser && message.sources && message.sources.length > 0 && (
           <div className="mt-2 text-xs">
             <button
               onClick={() => setShowSources((v) => !v)}
-              className="text-[#8b949e] hover:text-[#4f8cff]"
+              className="text-[#8b949e] hover:text-[#4f8cff] py-1 min-h-[32px]"
             >
               {showSources ? "hide sources" : "show sources"} (
               {message.sources.length})
@@ -80,7 +82,7 @@ function MessageBubble({ message }: { message: UiMessage }) {
                       href={s.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-[#4f8cff] hover:underline"
+                      className="text-[#4f8cff] hover:underline break-all"
                     >
                       {s.title || s.url}
                     </a>
@@ -101,7 +103,7 @@ export default function Home() {
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -113,6 +115,13 @@ export default function Home() {
   }, []);
 
   useEffect(() => scrollToBottom(), [messages, scrollToBottom]);
+
+  // Open sidebar by default on desktop widths only.
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.innerWidth >= 768) {
+      setSidebarOpen(true);
+    }
+  }, []);
 
   const loadConversations = useCallback(async () => {
     try {
@@ -171,6 +180,9 @@ export default function Home() {
       setCurrentId(data.conversation.id);
       setMessages([]);
       await loadConversations();
+      if (typeof window !== "undefined" && window.innerWidth < 768) {
+        setSidebarOpen(false);
+      }
     } catch {
       // ignore
     }
@@ -181,6 +193,7 @@ export default function Home() {
     if (!text || streaming || !currentId) return;
     setInput("");
     setError(null);
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
 
     const userMsg: UiMessage = {
       id: "user-" + Date.now(),
@@ -269,6 +282,9 @@ export default function Home() {
     (id: string) => {
       setCurrentId(id);
       void loadMessages(id);
+      if (typeof window !== "undefined" && window.innerWidth < 768) {
+        setSidebarOpen(false);
+      }
     },
     [loadMessages],
   );
@@ -307,79 +323,100 @@ export default function Home() {
   );
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-dvh overflow-hidden relative">
+      {/* Mobile backdrop */}
       {sidebarOpen && (
-        <aside className="w-64 shrink-0 flex flex-col border-r border-[#1f2937] bg-[#11161d]">
-          <div className="p-3">
-            <button
-              onClick={() => void newChat()}
-              className="w-full px-3 py-2 rounded-lg bg-[#4f8cff] text-white text-sm font-medium hover:opacity-90"
-            >
-              + New chat
-            </button>
-          </div>
-          <div className="px-3 pb-2 space-y-1">
-            <SearchBox />
-            <Link
-              href="/memories"
-              className="block px-3 py-2 rounded-lg text-sm text-[#8b949e] hover:bg-[#161b22] hover:text-white"
-            >
-              Memories
-            </Link>
-          </div>
-          <nav className="flex-1 overflow-y-auto px-2 pb-2">
-            {conversations.map((c) => (
-              <div
-                key={c.id}
-                className={
-                  "group flex items-center gap-1 px-3 py-2 rounded-lg text-sm cursor-pointer " +
-                  (c.id === currentId
-                    ? "bg-[#161b22] text-white"
-                    : "text-[#8b949e] hover:bg-[#161b22] hover:text-white")
-                }
-                onClick={() => selectConversation(c.id)}
-              >
-                <span className="flex-1 truncate">{c.title}</span>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void deleteConversation(c.id);
-                  }}
-                  className="opacity-0 group-hover:opacity-100 text-xs text-[#6e7681] hover:text-red-400"
-                  aria-label="Delete conversation"
-                >
-                  x
-                </button>
-              </div>
-            ))}
-            {conversations.length === 0 && (
-              <p className="px-3 py-2 text-xs text-[#6e7681]">
-                No conversations yet
-              </p>
-            )}
-          </nav>
-        </aside>
+        <div
+          className="fixed inset-0 z-30 bg-black/50 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
       )}
 
+      <aside
+        className={
+          "fixed md:static inset-y-0 left-0 z-40 w-72 sm:w-64 shrink-0 flex flex-col border-r border-[#1f2937] bg-[#11161d] transition-transform duration-200 ease-out " +
+          (sidebarOpen
+            ? "translate-x-0"
+            : "-translate-x-full md:translate-x-0 md:hidden")
+        }
+      >
+        <div className="p-3 flex items-center gap-2">
+          <button
+            onClick={() => void newChat()}
+            className="flex-1 px-3 py-2.5 rounded-lg bg-[#4f8cff] text-white text-sm font-medium hover:opacity-90 min-h-[44px]"
+          >
+            + New chat
+          </button>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="md:hidden p-2.5 rounded-lg text-[#8b949e] hover:text-white min-h-[44px] min-w-[44px]"
+            aria-label="Close sidebar"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="px-3 pb-2 space-y-1">
+          <SearchBox />
+          <Link
+            href="/memories"
+            className="block px-3 py-2.5 rounded-lg text-sm text-[#8b949e] hover:bg-[#161b22] hover:text-white min-h-[44px] flex items-center"
+          >
+            Memories
+          </Link>
+        </div>
+        <nav className="flex-1 overflow-y-auto px-2 pb-2">
+          {conversations.map((c) => (
+            <div
+              key={c.id}
+              className={
+                "group flex items-center gap-1 px-3 py-2.5 rounded-lg text-sm cursor-pointer min-h-[44px] " +
+                (c.id === currentId
+                  ? "bg-[#161b22] text-white"
+                  : "text-[#8b949e] hover:bg-[#161b22] hover:text-white")
+              }
+              onClick={() => selectConversation(c.id)}
+            >
+              <span className="flex-1 truncate">{c.title}</span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void deleteConversation(c.id);
+                }}
+                className="opacity-60 md:opacity-0 group-hover:opacity-100 text-xs text-[#6e7681] hover:text-red-400 min-h-[32px] min-w-[32px]"
+                aria-label="Delete conversation"
+              >
+                x
+              </button>
+            </div>
+          ))}
+          {conversations.length === 0 && (
+            <p className="px-3 py-2 text-xs text-[#6e7681]">
+              No conversations yet
+            </p>
+          )}
+        </nav>
+      </aside>
+
       {/* Main area */}
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="flex items-center gap-2 px-4 h-12 border-b border-[#1f2937] shrink-0">
+      <div className="flex-1 flex flex-col min-w-0 w-full">
+        <header className="flex items-center gap-2 px-3 sm:px-4 h-12 border-b border-[#1f2937] shrink-0">
           <button
             onClick={() => setSidebarOpen((v) => !v)}
-            className="px-2 py-1 text-sm text-[#8b949e] hover:text-white rounded"
+            className="px-2 py-2 text-sm text-[#8b949e] hover:text-white rounded min-h-[40px] min-w-[40px]"
             aria-label="Toggle sidebar"
           >
-            {sidebarOpen ? "Hide" : "Menu"}
+            {sidebarOpen ? "✕" : "☰"}
           </button>
-          <h1 className="text-sm font-medium">Personal AI Assistant</h1>
+          <h1 className="text-sm font-medium truncate">Personal AI Assistant</h1>
         </header>
 
-        <div ref={scrollRef} className="flex-1 overflow-y-auto">
-          <div className="max-w-3xl mx-auto px-4 py-4">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain">
+          <div className="max-w-3xl mx-auto px-3 sm:px-4 py-4">
             {messages.length === 0 && (
-              <div className="py-16 text-center text-[#6e7681]">
+              <div className="py-12 sm:py-16 text-center text-[#6e7681]">
                 <p className="text-lg mb-2">Ask me anything</p>
-                <p className="text-sm">
+                <p className="text-sm px-4">
                   I remember our past conversations and can search the web for
                   current facts.
                 </p>
@@ -402,7 +439,7 @@ export default function Home() {
         </div>
 
         {/* Composer */}
-        <div className="shrink-0 border-t border-[#1f2937] p-3">
+        <div className="shrink-0 border-t border-[#1f2937] p-2.5 sm:p-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.625rem)]">
           <div className="max-w-3xl mx-auto flex items-end gap-2">
             <textarea
               ref={textareaRef}
@@ -412,15 +449,16 @@ export default function Home() {
                 autoGrow();
               }}
               onKeyDown={onKeyDown}
-              placeholder="Message (Enter to send, Shift+Enter for newline)"
+              placeholder="Message..."
               rows={1}
               disabled={!currentId}
-              className="flex-1 resize-none px-3 py-2 rounded-lg bg-[#11161d] border border-[#30363d] text-sm focus:outline-none focus:border-[#4f8cff] max-h-[200px]"
+              className="flex-1 resize-none px-3 py-2.5 rounded-lg bg-[#11161d] border border-[#30363d] text-base sm:text-sm focus:outline-none focus:border-[#4f8cff] max-h-[200px]"
+              style={{ fontSize: "16px" }}
             />
             {streaming ? (
               <button
                 onClick={stop}
-                className="px-4 py-2 rounded-lg bg-red-500/20 text-red-400 text-sm font-medium hover:bg-red-500/30"
+                className="px-4 py-2.5 rounded-lg bg-red-500/20 text-red-400 text-sm font-medium hover:bg-red-500/30 min-h-[44px] shrink-0"
               >
                 Stop
               </button>
@@ -428,14 +466,14 @@ export default function Home() {
               <button
                 onClick={() => void send()}
                 disabled={!currentId || !input.trim()}
-                className="px-4 py-2 rounded-lg bg-[#4f8cff] text-white text-sm font-medium disabled:opacity-40"
+                className="px-4 py-2.5 rounded-lg bg-[#4f8cff] text-white text-sm font-medium disabled:opacity-40 min-h-[44px] shrink-0"
               >
                 Send
               </button>
             )}
           </div>
           {!currentId && (
-            <p className="max-w-3xl mx-auto mt-2 text-xs text-[#6e7681]">
+            <p className="max-w-3xl mx-auto mt-2 text-xs text-[#6e7681] px-1">
               Use &quot;+ New chat&quot; to start a conversation.
             </p>
           )}
