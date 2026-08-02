@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface Props {
   id: string;
@@ -10,10 +10,21 @@ interface Props {
   onDelete: (id: string) => void;
 }
 
+const LONG_PRESS_MS = 500;
+
 export default function ConversationItem({ id, title, active, onSelect, onRename, onDelete }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFired = useRef(false);
+
+  const closeMenu = () => {
+    setMenuOpen(false);
+    setConfirming(false);
+  };
 
   const submitRename = () => {
     const t = draft.trim();
@@ -21,12 +32,65 @@ export default function ConversationItem({ id, title, active, onSelect, onRename
     setEditing(false);
   };
 
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onOutside = (e: Event) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        closeMenu();
+      }
+    };
+    document.addEventListener("mousedown", onOutside);
+    document.addEventListener("touchstart", onOutside);
+    return () => {
+      document.removeEventListener("mousedown", onOutside);
+      document.removeEventListener("touchstart", onOutside);
+    };
+  }, [menuOpen]);
+
+  useEffect(() => {
+    return () => {
+      if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    };
+  }, []);
+
+  const clearLongPressTimer = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const onTouchStart = () => {
+    if (editing) return;
+    longPressFired.current = false;
+    clearLongPressTimer();
+    longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true;
+      setConfirming(false);
+      setMenuOpen(true);
+      navigator.vibrate?.(10);
+    }, LONG_PRESS_MS);
+  };
+
+  const handleRowClick = () => {
+    if (longPressFired.current) {
+      longPressFired.current = false;
+      return;
+    }
+    if (!editing && !menuOpen) onSelect(id);
+  };
+
   return (
     <div
-      className={"group flex items-center gap-1 px-3 py-2.5 rounded-lg text-sm cursor-pointer min-h-[44px] " + (active ? "bg-[#161b22] text-white" : "text-[#8b949e] hover:bg-[#161b22] hover:text-white")}
-      onClick={() => {
-        if (!editing && !confirming) onSelect(id);
-      }}
+      className={
+        "relative flex items-center gap-1 px-3 py-2.5 rounded-lg text-sm cursor-pointer min-h-[44px] select-none " +
+        (active ? "bg-[#161b22] text-white" : "text-[#8b949e] hover:bg-[#161b22] hover:text-white")
+      }
+      onClick={handleRowClick}
+      onTouchStart={onTouchStart}
+      onTouchEnd={clearLongPressTimer}
+      onTouchMove={clearLongPressTimer}
+      onTouchCancel={clearLongPressTimer}
     >
       {editing ? (
         <input
@@ -41,59 +105,81 @@ export default function ConversationItem({ id, title, active, onSelect, onRename
             }
             if (e.key === "Escape") setEditing(false);
           }}
+          onClick={(e) => e.stopPropagation()}
           className="flex-1 min-w-0 bg-[#0b0f14] border border-[#4f8cff] rounded px-1.5 py-0.5 text-sm text-white focus:outline-none"
         />
       ) : (
         <span className="flex-1 truncate">{title}</span>
       )}
 
-      {confirming ? (
-        <span className="flex items-center gap-1 text-xs">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setConfirming(false);
-              onDelete(id);
-            }}
-            className="px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30"
-          >
-            yes
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setConfirming(false);
-            }}
-            className="px-1.5 py-0.5 rounded text-[#8b949e] hover:text-white"
-          >
-            no
-          </button>
-        </span>
-      ) : !editing ? (
-        <span className="flex items-center gap-0.5">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setDraft(title);
-              setEditing(true);
-            }}
-            className="p-1 text-xs text-[#6e7681] hover:text-white min-w-[28px] min-h-[28px]"
-            aria-label="Rename conversation"
-          >
-            R
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setConfirming(true);
-            }}
-            className="p-1 text-xs text-[#6e7681] hover:text-red-400 min-w-[28px] min-h-[28px]"
-            aria-label="Delete conversation"
-          >
-            X
-          </button>
-        </span>
-      ) : null}
+      {!editing && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setConfirming(false);
+            setMenuOpen((v) => !v);
+          }}
+          className="hidden md:flex p-1 text-base leading-none text-[#6e7681] hover:text-white min-w-[28px] min-h-[28px] items-center justify-center rounded"
+          aria-label="Conversation options"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+        >
+          ⋯
+        </button>
+      )}
+
+      {menuOpen && !editing && (
+        <div
+          ref={menuRef}
+          role="menu"
+          onClick={(e) => e.stopPropagation()}
+          className="absolute right-2 top-full mt-1 z-50 w-40 rounded-lg border border-[#30363d] bg-[#161b22] shadow-xl py-1 text-sm"
+        >
+          {confirming ? (
+            <div className="px-3 py-2">
+              <p className="text-xs text-[#8b949e] mb-2">Delete this chat?</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    closeMenu();
+                    onDelete(id);
+                  }}
+                  className="flex-1 px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 text-xs"
+                >
+                  Delete
+                </button>
+                <button
+                  onClick={() => setConfirming(false)}
+                  className="flex-1 px-2 py-1 rounded text-[#8b949e] hover:text-white text-xs"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <button
+                role="menuitem"
+                onClick={() => {
+                  setDraft(title);
+                  setEditing(true);
+                  setMenuOpen(false);
+                }}
+                className="w-full text-left px-3 py-2 hover:bg-[#1f2937] text-[#c9d1d9]"
+              >
+                Rename
+              </button>
+              <button
+                role="menuitem"
+                onClick={() => setConfirming(true)}
+                className="w-full text-left px-3 py-2 hover:bg-[#1f2937] text-red-400"
+              >
+                Delete
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
