@@ -70,7 +70,7 @@ export default function ConversationItem({ id, title, active, onSelect, onRename
           </button>
         </span>
       ) : !editing ? (
-        <span className="hidden group-hover:flex items-center gap-0.5">
+        <span className="flex items-center gap-0.5">
           <button
             onClick={(e) => {
               e.stopPropagation();

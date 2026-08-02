@@ -105,7 +105,7 @@ export default function MessageBubble({ message, isLastAssistant, onEdit, onRege
         )}
 
         {!editing && (
-          <div className={"absolute -top-2.5 hidden group-hover:flex gap-1 " + (isUser ? "left-2" : "right-2")}>
+<div className={"absolute -top-2.5 flex gap-1 " + (isUser ? "left-2" : "right-2")}>
             {isUser && (
               <button
                 onClick={() => setEditing(true)}
