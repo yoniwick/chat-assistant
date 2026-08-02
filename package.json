@@ -7,6 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "pwa:icons": "node scripts/generate-pwa-assets.mjs",
+    "pwa:splash": "node scripts/generate-ios-splash.mjs",
+    "pwa:assets": "npm run pwa:icons && npm run pwa:splash",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:check": "drizzle-kit check"

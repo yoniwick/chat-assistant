@@ -7,7 +7,9 @@ export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   const isPublic =
-    pathname.startsWith("/login") || pathname.startsWith("/api/auth");
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/offline") ||
+    pathname.startsWith("/api/auth");
   if (isPublic) return NextResponse.next();
 
   // No password configured — dev fallback, allow everything.
@@ -27,5 +29,7 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.svg$).*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.svg$|.*\\.png$|manifest\\.json$|sw\\.js$).*)",
+  ],
 };
