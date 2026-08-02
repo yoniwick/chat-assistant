@@ -41,6 +41,25 @@ export default function MemoriesPage() {
     void load();
   }, [load]);
 
+  // Poll for changes made from other tabs/devices, and refresh immediately
+  // when this tab regains focus/visibility.
+  useEffect(() => {
+    const POLL_MS = 5000;
+    const id = setInterval(() => {
+      void load();
+    }, POLL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [load]);
+
   const remove = useCallback(async (id: string) => {
     try {
       const res = await fetch(`/api/memories/${id}`, { method: "DELETE" });

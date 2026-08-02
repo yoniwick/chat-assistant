@@ -50,6 +50,25 @@ export default function Home() {
     void loadConversations();
   }, [loadConversations]);
 
+  // Poll for changes made from other tabs/devices, and refresh immediately
+  // when this tab regains focus/visibility.
+  useEffect(() => {
+    const POLL_MS = 5000;
+    const id = setInterval(() => {
+      void loadConversations();
+    }, POLL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void loadConversations();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [loadConversations]);
+
   // Smart auto-scroll: follow new messages only when near the bottom.
   useEffect(() => {
     const el = scrollRef.current;
@@ -103,6 +122,26 @@ export default function Home() {
       // ignore
     }
   }, []);
+
+  // Poll the open conversation for messages added elsewhere (e.g. another
+  // device), but never while this tab is actively streaming a response.
+  useEffect(() => {
+    if (!currentId || streaming) return;
+    const POLL_MS = 5000;
+    const id = setInterval(() => {
+      void loadMessages(currentId);
+    }, POLL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void loadMessages(currentId);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [currentId, streaming, loadMessages]);
 
   const newChat = useCallback(() => {
     messageRef.current = null;
