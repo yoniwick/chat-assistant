@@ -26,12 +26,8 @@ export async function POST(req: NextRequest) {
     if (typeof body.message !== "string" || body.message.trim().length === 0) {
       return Response.json({ error: "message is required" }, { status: 400 });
     }
-    if (typeof body.conversationId !== "string") {
-      return Response.json(
-        { error: "conversationId is required" },
-        { status: 400 },
-      );
-    }
+    const conversationId =
+      typeof body.conversationId === "string" ? body.conversationId : null;
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
@@ -44,11 +40,12 @@ export async function POST(req: NextRequest) {
         };
 
         try {
-          await runChat({
-            conversationId: body.conversationId as string,
+          const result = await runChat({
+            conversationId,
             message: body.message as string,
             onDelta: (delta) => send({ delta }),
           });
+          send({ conversationId: result.conversationId });
           send({ done: true });
         } catch (err) {
           const message =

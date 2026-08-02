@@ -4,6 +4,7 @@ export interface GlobalSearchHit {
   type: "message" | "memory";
   id: string;
   content: string;
+  conversationId: string | null;
   conversationTitle: string | null;
   role: string | null;
   kind: string | null;
@@ -19,7 +20,8 @@ export async function globalSearch(
   const raw = neon(process.env.DATABASE_URL!);
   const rows = (await raw`
     SELECT * FROM (
-      SELECT m.id, m.content, c.title AS conversation_title, m.role,
+      SELECT m.id, m.content, m.conversation_id AS conversation_id,
+             c.title AS conversation_title, m.role,
              NULL AS kind, m.created_at,
              ts_rank(m.tsv, plainto_tsquery('english', ${q})) AS rank
       FROM messages m
@@ -27,7 +29,8 @@ export async function globalSearch(
       WHERE m.tsv @@ plainto_tsquery('english', ${q})
         AND c.archived = false
       UNION ALL
-      SELECT mem.id, mem.content, NULL AS conversation_title, NULL AS role,
+      SELECT mem.id, mem.content, NULL AS conversation_id,
+             NULL AS conversation_title, NULL AS role,
              mem.kind, mem.created_at,
              ts_rank(mem.tsv, plainto_tsquery('english', ${q})) AS rank
       FROM memories mem
@@ -38,6 +41,7 @@ export async function globalSearch(
   `) as Array<{
     id: string;
     content: string;
+    conversation_id: string | null;
     conversation_title: string | null;
     role: string | null;
     kind: string | null;
@@ -49,6 +53,7 @@ export async function globalSearch(
     type: r.kind !== null ? "memory" : "message",
     id: r.id,
     content: r.content,
+    conversationId: r.conversation_id,
     conversationTitle: r.conversation_title,
     role: r.role,
     kind: r.kind,

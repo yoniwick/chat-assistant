@@ -6,13 +6,19 @@ interface SearchHit {
   type: "message" | "memory";
   id: string;
   content: string;
+  conversationId: string | null;
   conversationTitle: string | null;
   role: string | null;
   kind: string | null;
   createdAt: string;
 }
 
-export default function SearchBox() {
+interface SearchBoxProps {
+  onSelect?: (hit: SearchHit) => void;
+  inputRef?: React.RefObject<HTMLInputElement | null>;
+}
+
+export default function SearchBox({ onSelect, inputRef }: SearchBoxProps) {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [open, setOpen] = useState(false);
@@ -43,9 +49,17 @@ export default function SearchBox() {
     timerRef.current = setTimeout(() => void doSearch(value), 300);
   };
 
+  const pick = (h: SearchHit) => {
+    setOpen(false);
+    setQ("");
+    setHits([]);
+    onSelect?.(h);
+  };
+
   return (
     <div className="relative">
       <input
+        ref={inputRef}
         type="text"
         value={q}
         onChange={(e) => onChange(e.target.value)}
@@ -57,9 +71,11 @@ export default function SearchBox() {
       {open && hits.length > 0 && (
         <div className="absolute left-0 right-0 top-full mt-1 z-20 max-h-72 overflow-y-auto rounded-lg border border-[#30363d] bg-[#11161d] shadow-xl">
           {hits.slice(0, 20).map((h) => (
-            <div
+            <button
               key={h.type + "-" + h.id}
-              className="px-3 py-2 border-b border-[#161b22]"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => pick(h)}
+              className="w-full text-left px-3 py-2 border-b border-[#161b22] hover:bg-[#161b22] cursor-pointer"
             >
               <div className="text-xs text-[#6e7681] mb-1">
                 {h.type === "memory"
@@ -68,7 +84,7 @@ export default function SearchBox() {
                     (h.conversationTitle ?? "Untitled")}
               </div>
               <p className="text-xs text-[#e6edf3] line-clamp-2">{h.content}</p>
-            </div>
+            </button>
           ))}
         </div>
       )}

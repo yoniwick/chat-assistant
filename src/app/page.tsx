@@ -2,99 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import Markdown from "@/components/Markdown";
+import MessageBubble, { type UiMessage } from "@/components/MessageBubble";
+import ConversationItem from "@/components/ConversationItem";
 import SearchBox from "@/components/SearchBox";
-
-interface Source {
-  title: string;
-  url: string;
-  snippet: string;
-}
-
-interface UiMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  searchUsed?: boolean;
-  sources?: Source[];
-  createdAt?: string;
-}
 
 interface ConversationSummary {
   id: string;
   title: string;
   updatedAt: string;
   lastMessagePreview: string | null;
-}
-
-function MessageBubble({ message }: { message: UiMessage }) {
-  const [showSources, setShowSources] = useState(false);
-  const isUser = message.role === "user";
-
-  return (
-    <div
-      className={
-        "flex gap-2 sm:gap-3 py-3 " + (isUser ? "flex-row-reverse" : "")
-      }
-    >
-      <div
-        className={
-          "min-w-0 max-w-[92%] sm:max-w-[85%] rounded-xl px-3 py-2 sm:px-4 " +
-          (isUser
-            ? "bg-[#1f3a5f] text-white"
-            : "bg-[#11161d] border border-[#1f2937]")
-        }
-      >
-        {!isUser && (
-          <div className="flex flex-wrap items-center gap-2 mb-1 text-xs text-[#6e7681]">
-            <span>Assistant</span>
-            {message.searchUsed && (
-              <span className="inline-flex items-center gap-1 text-[#4f8cff]">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="2" y1="12" x2="22" y2="12" />
-                  <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-                </svg>
-                searched web
-              </span>
-            )}
-          </div>
-        )}
-
-        <div className="text-sm sm:text-base break-words">
-          <Markdown content={message.content} />
-        </div>
-
-        {!isUser && message.sources && message.sources.length > 0 && (
-          <div className="mt-2 text-xs">
-            <button
-              onClick={() => setShowSources((v) => !v)}
-              className="text-[#8b949e] hover:text-[#4f8cff] py-1 min-h-[32px]"
-            >
-              {showSources ? "hide sources" : "show sources"} (
-              {message.sources.length})
-            </button>
-            {showSources && (
-              <ol className="mt-2 space-y-1 list-decimal list-inside">
-                {message.sources.map((s, i) => (
-                  <li key={i}>
-                    <a
-                      href={s.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[#4f8cff] hover:underline break-all"
-                    >
-                      {s.title || s.url}
-                    </a>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
 }
 
 export default function Home() {
@@ -107,29 +23,22 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [showJump, setShowJump] = useState(false);
+  const messageRef = useRef<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
 
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, []);
-
-  useEffect(() => scrollToBottom(), [messages, scrollToBottom]);
-
-  // Open sidebar by default on desktop widths only.
-  useEffect(() => {
-    if (typeof window !== "undefined" && window.innerWidth >= 768) {
-      setSidebarOpen(true);
-    }
+    setShowJump(false);
   }, []);
 
   const loadConversations = useCallback(async () => {
     try {
       const res = await fetch("/api/conversations");
       if (res.ok) {
-        const data = (await res.json()) as {
-          conversations: ConversationSummary[];
-        };
+        const data = (await res.json()) as { conversations: ConversationSummary[] };
         setConversations(data.conversations);
       }
     } catch {
@@ -140,6 +49,29 @@ export default function Home() {
   useEffect(() => {
     void loadConversations();
   }, [loadConversations]);
+
+  // Smart auto-scroll: follow new messages only when near the bottom.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+    if (nearBottom) {
+      el.scrollTop = el.scrollHeight;
+      setShowJump(false);
+    }
+  }, [messages, streaming]);
+
+  // While streaming, reveal a jump-to-bottom button when the user scrolls up.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+      setShowJump(streaming && !nearBottom);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [streaming]);
 
   const loadMessages = useCallback(async (id: string) => {
     try {
@@ -152,7 +84,7 @@ export default function Home() {
           content: string;
           createdAt: string;
           searchUsed: boolean;
-          sources: Source[];
+          sources: UiMessage["sources"];
         }>;
       };
       setMessages(
@@ -172,107 +104,107 @@ export default function Home() {
     }
   }, []);
 
-  const newChat = useCallback(async () => {
-    try {
-      const res = await fetch("/api/conversations", { method: "POST" });
-      if (!res.ok) return;
-      const data = (await res.json()) as { conversation: { id: string } };
-      setCurrentId(data.conversation.id);
-      setMessages([]);
-      await loadConversations();
-      if (typeof window !== "undefined" && window.innerWidth < 768) {
-        setSidebarOpen(false);
-      }
-    } catch {
-      // ignore
-    }
-  }, [loadConversations]);
-
-  const send = useCallback(async () => {
-    const text = input.trim();
-    if (!text || streaming || !currentId) return;
-    setInput("");
+  const newChat = useCallback(() => {
+    messageRef.current = null;
+    setCurrentId(null);
+    setMessages([]);
     setError(null);
-    if (textareaRef.current) textareaRef.current.style.height = "auto";
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      setSidebarOpen(false);
+    }
+    textareaRef.current?.focus();
+  }, []);
 
-    const userMsg: UiMessage = {
-      id: "user-" + Date.now(),
-      role: "user",
-      content: text,
-      createdAt: new Date().toISOString(),
-    };
-    const helperId = "assistant-stream";
-    const helper: UiMessage = {
-      id: helperId,
-      role: "assistant",
-      content: "",
-    };
-    setMessages((prev) => [...prev, userMsg, helper]);
-    setStreaming(true);
+  const send = useCallback(
+    async (overrideText?: string) => {
+      const text = (overrideText ?? input).trim();
+      if (!text || streaming) return;
+      setInput("");
+      setError(null);
+      if (textareaRef.current) textareaRef.current.style.height = "auto";
 
-    const controller = new AbortController();
-    abortRef.current = controller;
+      const userMsg: UiMessage = {
+        id: "user-" + Date.now(),
+        role: "user",
+        content: text,
+        createdAt: new Date().toISOString(),
+      };
+      const helperId = "assistant-stream";
+      const helper: UiMessage = { id: helperId, role: "assistant", content: "" };
+      setMessages((prev) => [...prev, userMsg, helper]);
+      setStreaming(true);
 
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId: currentId, message: text }),
-        signal: controller.signal,
-      });
-      if (!res.ok || !res.body) {
-        const data = (await res.json().catch(() => null)) as {
-          error?: string;
-        } | null;
-        throw new Error(data?.error ?? "Chat request failed");
-      }
+      const controller = new AbortController();
+      abortRef.current = controller;
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const events = buffer.split("\n\n");
-        buffer = events.pop() ?? "";
-        for (const evt of events) {
-          const line = evt.split("\n").find((l) => l.startsWith("data: "));
-          if (!line) continue;
-          try {
-            const data = JSON.parse(line.slice(6)) as {
-              delta?: string;
-              done?: boolean;
-              error?: string;
-            };
-            if (data.error) throw new Error(data.error);
-            if (data.delta) {
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === helperId
-                    ? { ...m, content: m.content + data.delta }
-                    : m,
-                ),
-              );
+      try {
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversationId: currentId,
+            message: text,
+          }),
+          signal: controller.signal,
+        });
+        if (!res.ok || !res.body) {
+          const data = (await res.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(data?.error ?? "Chat request failed");
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const events = buffer.split("\n\n");
+          buffer = events.pop() ?? "";
+          for (const evt of events) {
+            const line = evt.split("\n").find((l) => l.startsWith("data: "));
+            if (!line) continue;
+            try {
+              const data = JSON.parse(line.slice(6)) as {
+                delta?: string;
+                done?: boolean;
+                error?: string;
+                conversationId?: string;
+              };
+              if (data.error) throw new Error(data.error);
+              if (data.conversationId) {
+                messageRef.current = data.conversationId;
+                setCurrentId(data.conversationId);
+                void loadConversations();
+              }
+              if (data.delta) {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === helperId ? { ...m, content: m.content + data.delta } : m,
+                  ),
+                );
+              }
+              if (data.done) break;
+            } catch {
+              // skip malformed events
             }
-            if (data.done) break;
-          } catch {
-            // skip malformed events
           }
         }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Request failed");
+      } finally {
+        setStreaming(false);
+        abortRef.current = null;
+        setMessages((prev) => prev.filter((m) => m.id !== helperId || m.content !== ""));
+        void loadConversations();
+        // Refresh source metadata after streaming completes.
+        const resolvedId =
+          currentId ?? messageRef.current ?? null;
+        if (resolvedId) void loadMessages(resolvedId);
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Request failed");
-    } finally {
-      setStreaming(false);
-      abortRef.current = null;
-      setMessages((prev) =>
-        prev.filter((m) => m.id !== helperId || m.content !== ""),
-      );
-      await loadConversations();
-      if (currentId) await loadMessages(currentId);
-    }
-  }, [input, streaming, currentId, loadConversations, loadMessages]);
+    },
+    [input, streaming, currentId, loadConversations, loadMessages],
+  );
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -287,6 +219,22 @@ export default function Home() {
       }
     },
     [loadMessages],
+  );
+
+  const renameConversation = useCallback(
+    async (id: string, title: string) => {
+      try {
+        await fetch(`/api/conversations/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title }),
+        });
+        await loadConversations();
+      } catch {
+        // ignore
+      }
+    },
+    [loadConversations],
   );
 
   const deleteConversation = useCallback(
@@ -305,6 +253,25 @@ export default function Home() {
     [currentId, loadConversations],
   );
 
+  // Keyboard shortcuts: Cmd/Ctrl+K search, Cmd/Ctrl+N new chat, Cmd+Enter send
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        searchRef.current?.focus();
+      } else if (mod && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        newChat();
+      } else if (mod && e.key === "Enter") {
+        e.preventDefault();
+        if (!streaming) void send();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [newChat, send, streaming]);
+
   const autoGrow = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -322,12 +289,38 @@ export default function Home() {
     [send],
   );
 
+  const editMessage = useCallback(
+    (text: string) => {
+      setInput(text);
+      textareaRef.current?.focus();
+    },
+    [],
+  );
+
+  const regenerate = useCallback(() => {
+    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    if (lastUser) {
+      setMessages((prev) => prev.filter((m) => m.id !== prev[prev.length - 1].id));
+      void send(lastUser.content);
+    }
+  }, [messages, send]);
+
+  const onSearchSelect = useCallback(
+    (hit: { type: string; conversationId: string | null }) => {
+      if (hit.type === "message" && hit.conversationId) {
+        selectConversation(hit.conversationId);
+      } else if (hit.type === "memory") {
+        window.location.href = "/memories";
+      }
+    },
+    [selectConversation],
+  );
+
   return (
     <div className="flex h-dvh overflow-hidden relative">
-      {/* Mobile backdrop */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-30 bg-black/50 md:hidden"
+          className="fixed inset-0 z-30 bg-black/50"
           onClick={() => setSidebarOpen(false)}
           aria-hidden="true"
         />
@@ -335,15 +328,13 @@ export default function Home() {
 
       <aside
         className={
-          "fixed md:static inset-y-0 left-0 z-40 w-72 sm:w-64 shrink-0 flex flex-col border-r border-[#1f2937] bg-[#11161d] transition-transform duration-200 ease-out " +
-          (sidebarOpen
-            ? "translate-x-0"
-            : "-translate-x-full md:translate-x-0 md:hidden")
+          "fixed inset-y-0 left-0 z-40 w-72 sm:w-64 flex flex-col border-r border-[#1f2937] bg-[#11161d] shadow-xl transition-transform duration-200 ease-out " +
+          (sidebarOpen ? "translate-x-0" : "-translate-x-full")
         }
       >
         <div className="p-3 flex items-center gap-2">
           <button
-            onClick={() => void newChat()}
+            onClick={newChat}
             className="flex-1 px-3 py-2.5 rounded-lg bg-[#4f8cff] text-white text-sm font-medium hover:opacity-90 min-h-[44px]"
           >
             + New chat
@@ -353,11 +344,11 @@ export default function Home() {
             className="md:hidden p-2.5 rounded-lg text-[#8b949e] hover:text-white min-h-[44px] min-w-[44px]"
             aria-label="Close sidebar"
           >
-            ✕
+            X
           </button>
         </div>
         <div className="px-3 pb-2 space-y-1">
-          <SearchBox />
+          <SearchBox onSelect={onSearchSelect} inputRef={searchRef} />
           <Link
             href="/memories"
             className="block px-3 py-2.5 rounded-lg text-sm text-[#8b949e] hover:bg-[#161b22] hover:text-white min-h-[44px] flex items-center"
@@ -367,38 +358,22 @@ export default function Home() {
         </div>
         <nav className="flex-1 overflow-y-auto px-2 pb-2">
           {conversations.map((c) => (
-            <div
+            <ConversationItem
               key={c.id}
-              className={
-                "group flex items-center gap-1 px-3 py-2.5 rounded-lg text-sm cursor-pointer min-h-[44px] " +
-                (c.id === currentId
-                  ? "bg-[#161b22] text-white"
-                  : "text-[#8b949e] hover:bg-[#161b22] hover:text-white")
-              }
-              onClick={() => selectConversation(c.id)}
-            >
-              <span className="flex-1 truncate">{c.title}</span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void deleteConversation(c.id);
-                }}
-                className="opacity-60 md:opacity-0 group-hover:opacity-100 text-xs text-[#6e7681] hover:text-red-400 min-h-[32px] min-w-[32px]"
-                aria-label="Delete conversation"
-              >
-                x
-              </button>
-            </div>
+              id={c.id}
+              title={c.title}
+              active={c.id === currentId}
+              onSelect={selectConversation}
+              onRename={renameConversation}
+              onDelete={deleteConversation}
+            />
           ))}
           {conversations.length === 0 && (
-            <p className="px-3 py-2 text-xs text-[#6e7681]">
-              No conversations yet
-            </p>
+            <p className="px-3 py-2 text-xs text-[#6e7681]">No conversations yet</p>
           )}
         </nav>
       </aside>
 
-      {/* Main area */}
       <div className="flex-1 flex flex-col min-w-0 w-full">
         <header className="flex items-center gap-2 px-3 sm:px-4 h-12 border-b border-[#1f2937] shrink-0">
           <button
@@ -406,7 +381,7 @@ export default function Home() {
             className="px-2 py-2 text-sm text-[#8b949e] hover:text-white rounded min-h-[40px] min-w-[40px]"
             aria-label="Toggle sidebar"
           >
-            {sidebarOpen ? "✕" : "☰"}
+            {sidebarOpen ? "X" : "="}
           </button>
           <h1 className="text-sm font-medium truncate">Personal AI Assistant</h1>
         </header>
@@ -417,14 +392,19 @@ export default function Home() {
               <div className="py-12 sm:py-16 text-center text-[#6e7681]">
                 <p className="text-lg mb-2">Ask me anything</p>
                 <p className="text-sm px-4">
-                  I remember our past conversations and can search the web for
-                  current facts.
+                  I remember our past conversations and can search the web for current facts.
                 </p>
               </div>
             )}
 
-            {messages.map((m) => (
-              <MessageBubble key={m.id} message={m} />
+            {messages.map((m, i) => (
+              <MessageBubble
+                key={m.id}
+                message={m}
+                isLastAssistant={m.role === "assistant" && i === messages.length - 1}
+                onEdit={m.role === "user" ? editMessage : undefined}
+                onRegenerate={m.role === "assistant" && i === messages.length - 1 ? regenerate : undefined}
+              />
             ))}
 
             {streaming && (
@@ -435,10 +415,17 @@ export default function Home() {
             )}
 
             {error && <div className="py-2 text-sm text-red-400">{error}</div>}
+            {showJump && (
+              <button
+                onClick={scrollToBottom}
+                className="sticky bottom-2 mx-auto block px-3 py-1.5 rounded-full bg-[#4f8cff] text-white text-xs font-medium shadow-lg"
+              >
+                down
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Composer */}
         <div className="shrink-0 border-t border-[#1f2937] p-2.5 sm:p-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.625rem)]">
           <div className="max-w-3xl mx-auto flex items-end gap-2">
             <textarea
@@ -451,7 +438,6 @@ export default function Home() {
               onKeyDown={onKeyDown}
               placeholder="Message..."
               rows={1}
-              disabled={!currentId}
               className="flex-1 resize-none px-3 py-2.5 rounded-lg bg-[#11161d] border border-[#30363d] text-base sm:text-sm focus:outline-none focus:border-[#4f8cff] max-h-[200px]"
               style={{ fontSize: "16px" }}
             />
@@ -465,7 +451,7 @@ export default function Home() {
             ) : (
               <button
                 onClick={() => void send()}
-                disabled={!currentId || !input.trim()}
+                disabled={!input.trim()}
                 className="px-4 py-2.5 rounded-lg bg-[#4f8cff] text-white text-sm font-medium disabled:opacity-40 min-h-[44px] shrink-0"
               >
                 Send
@@ -474,7 +460,7 @@ export default function Home() {
           </div>
           {!currentId && (
             <p className="max-w-3xl mx-auto mt-2 text-xs text-[#6e7681] px-1">
-              Use &quot;+ New chat&quot; to start a conversation.
+              Type a message to start a new conversation.
             </p>
           )}
         </div>

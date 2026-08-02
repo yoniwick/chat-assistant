@@ -8,6 +8,7 @@ import { extractMemories, summarizeConversation } from "./memory";
 import type { Source } from "@/db/schema";
 
 export interface ChatResult {
+  conversationId: string;
   content: string | null;
   searchUsed: boolean;
   sources: Source[];
@@ -15,7 +16,7 @@ export interface ChatResult {
 }
 
 export interface ChatRequest {
-  conversationId: string;
+  conversationId: string | null;
   message: string;
   signal?: AbortSignal;
   onDelta: (delta: string) => void;
@@ -87,14 +88,23 @@ function searchRound(
 }
 
 export async function runChat(req: ChatRequest): Promise<ChatResult> {
-  const convo = await loadConversation(req.conversationId);
+  let conversationId = req.conversationId;
+  if (!conversationId) {
+    const inserted = await db
+      .insert(conversations)
+      .values({})
+      .returning({ id: conversations.id });
+    conversationId = inserted[0].id;
+  }
+
+  const convo = await loadConversation(conversationId);
   if (!convo) throw new Error("Conversation not found");
 
-  const recent = await loadRecentMessages(req.conversationId, 12);
+  const recent = await loadRecentMessages(conversationId, 12);
 
   const bundle = await buildContext({
     userMessage: req.message,
-    conversationId: req.conversationId,
+    conversationId,
     summary: convo.summary,
     messageCount: recent.length,
     recentTurns: recent.map((m) => ({
@@ -173,15 +183,15 @@ export async function runChat(req: ChatRequest): Promise<ChatResult> {
   });
   if (!streamed) throw new Error("DeepSeek streaming failed");
 
-  await persistMessages(req, finalText, searchUsed, sources);
+  await persistMessages(conversationId, req.message, finalText, searchUsed, sources);
 
   // Non-blocking background work: memory extraction + summary.
   void (async () => {
     try {
       if (finalText.trim()) {
-        await extractMemories(req.message, finalText, req.conversationId);
+await extractMemories(req.message, finalText, conversationId);
       }
-      const all = await loadRecentMessages(req.conversationId, 200);
+      const all = await loadRecentMessages(conversationId, 200);
       if (all.length > 0 && all.length % 10 === 0) {
         const summary = await summarizeConversation(
           convo.title,
@@ -190,8 +200,8 @@ export async function runChat(req: ChatRequest): Promise<ChatResult> {
         if (summary) {
           await db
             .update(conversations)
-            .set({ summary, updatedAt: new Date() })
-            .where(eq(conversations.id, req.conversationId));
+.set({ summary, updatedAt: new Date() })
+            .where(eq(conversations.id, conversationId));
         }
       }
     } catch {
@@ -199,22 +209,23 @@ export async function runChat(req: ChatRequest): Promise<ChatResult> {
     }
   })();
 
-  return { content: finalText, searchUsed, sources, context: bundle };
+  return { conversationId, content: finalText, searchUsed, sources, context: bundle };
 }
 
 async function persistMessages(
-  req: ChatRequest,
+  conversationId: string,
+  userMessage: string,
   assistantText: string,
   searchUsed: boolean,
   sources: Source[],
 ): Promise<void> {
   await db.insert(messages).values({
-    conversationId: req.conversationId,
+    conversationId,
     role: "user",
-    content: req.message,
+    content: userMessage,
   });
   await db.insert(messages).values({
-    conversationId: req.conversationId,
+    conversationId,
     role: "assistant",
     content: assistantText,
     searchUsed,
@@ -223,19 +234,19 @@ async function persistMessages(
   await db
     .update(conversations)
     .set({ updatedAt: new Date() })
-    .where(eq(conversations.id, req.conversationId));
+    .where(eq(conversations.id, conversationId));
 
   // Auto-title from the first user message.
   const count = await db
     .select({ id: messages.id })
     .from(messages)
-    .where(eq(messages.conversationId, req.conversationId));
+    .where(eq(messages.conversationId, conversationId));
   if (count.length <= 2) {
     const title =
-      req.message.slice(0, 60) + (req.message.length > 60 ? "..." : "");
+      userMessage.slice(0, 60) + (userMessage.length > 60 ? "..." : "");
     await db
       .update(conversations)
       .set({ title })
-      .where(eq(conversations.id, req.conversationId));
+      .where(eq(conversations.id, conversationId));
   }
 }
